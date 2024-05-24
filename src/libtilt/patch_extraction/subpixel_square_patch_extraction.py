@@ -79,18 +79,22 @@ def _extract_square_patches_from_single_2d_image(
     ph, pw = (output_image_sidelength + 2, output_image_sidelength + 2)
     coordinates = coordinate_grid(
         image_shape=(ph, pw),
-        center=dft_center((ph, pw), rfft=False, fftshifted=True, device=image.device),
+        center=dft_center((ph, pw), rfft=False,
+                          fftshifted=True, device=image.device),
         device=image.device
     )  # (h, w, 2)
-    broadcastable_positions = einops.rearrange(integer_positions, 'b yx -> b 1 1 yx')
+    broadcastable_positions = einops.rearrange(
+        integer_positions, 'b yx -> b 1 1 yx')
     grid = coordinates + broadcastable_positions  # (b, h, w, 2)
 
+    # TODO: Bogdan: maybe reflection padding isn't the best either? try to pad with the average value of the image
     # extract patches, grid sample handles boundaries
     patches = F.grid_sample(
         input=einops.repeat(image, 'h w -> b 1 h w', b=b),
         grid=array_to_grid_sample(grid, array_shape=(h, w)),
         mode='nearest',
-        padding_mode='zeros',
+        # padding_mode='zeros',
+        padding_mode='reflection',
         align_corners=True
     )
     patches = einops.rearrange(patches, 'b 1 h w -> b h w')

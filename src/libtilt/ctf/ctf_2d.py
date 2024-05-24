@@ -22,6 +22,7 @@ def calculate_ctf(
         image_shape: Tuple[int, int],
         rfft: bool,
         fftshift: bool,
+        do_intact_until_first_peak: bool = False
 ):
     """
 
@@ -58,9 +59,11 @@ def calculate_ctf(
     # to torch.Tensor and unit conversions
     defocus = torch.atleast_1d(torch.as_tensor(defocus, dtype=torch.float))
     defocus *= 1e4  # micrometers -> angstroms
-    astigmatism = torch.atleast_1d(torch.as_tensor(astigmatism, dtype=torch.float))
+    astigmatism = torch.atleast_1d(
+        torch.as_tensor(astigmatism, dtype=torch.float))
     astigmatism *= 1e4  # micrometers -> angstroms
-    astigmatism_angle = torch.atleast_1d(torch.as_tensor(astigmatism_angle, dtype=torch.float))
+    astigmatism_angle = torch.atleast_1d(
+        torch.as_tensor(astigmatism_angle, dtype=torch.float))
     astigmatism_angle *= (C.pi / 180)  # degrees -> radians
     pixel_size = torch.atleast_1d(torch.as_tensor(pixel_size))
     voltage = torch.atleast_1d(torch.as_tensor(voltage, dtype=torch.float))
@@ -74,7 +77,8 @@ def calculate_ctf(
     # derived quantities used in CTF calculation
     defocus_u = defocus + astigmatism
     defocus_v = defocus - astigmatism
-    _lambda = calculate_relativistic_electron_wavelength(voltage) * 1e10  # meters -> angstroms
+    _lambda = calculate_relativistic_electron_wavelength(
+        voltage) * 1e10  # meters -> angstroms
     k1 = -C.pi * _lambda
     k2 = C.pi / 2 * spherical_aberration * _lambda ** 3
     k3 = torch.tensor(np.deg2rad(phase_shift))
@@ -82,7 +86,8 @@ def calculate_ctf(
     k5 = np.arctan(amplitude_contrast / np.sqrt(1 - amplitude_contrast ** 2))
 
     # construct 2D frequency grids and rescale cycles / px -> cycles / Å
-    fftfreq_grid = _construct_fftfreq_grid_2d(image_shape=image_shape, rfft=rfft)  # (h, w, 2)
+    fftfreq_grid = _construct_fftfreq_grid_2d(
+        image_shape=image_shape, rfft=rfft)  # (h, w, 2)
     fftfreq_grid = fftfreq_grid / einops.rearrange(pixel_size, 'b -> b 1 1 1')
     fftfreq_grid_squared = fftfreq_grid ** 2
 
@@ -103,9 +108,11 @@ def calculate_ctf(
     s = torch.sin(astigmatism_angle)
     s2 = s ** 2
 
-    yy2, xx2 = einops.rearrange(fftfreq_grid_squared, 'b h w freq -> freq b h w')
+    yy2, xx2 = einops.rearrange(
+        fftfreq_grid_squared, 'b h w freq -> freq b h w')
     xy = einops.reduce(fftfreq_grid, 'b h w freq -> b h w', reduction='prod')
-    n4 = einops.reduce(fftfreq_grid_squared, 'b h w freq -> b h w', reduction='sum') ** 2
+    n4 = einops.reduce(fftfreq_grid_squared,
+                       'b h w freq -> b h w', reduction='sum') ** 2
 
     Axx = c2 * defocus_u + s2 * defocus_v
     Axx_x2 = einops.rearrange(Axx, '... -> ... 1 1') * xx2
@@ -120,4 +127,14 @@ def calculate_ctf(
         ctf *= torch.exp(k4 * n4)
     if fftshift is True:
         ctf = torch.fft.fftshift(ctf, dim=(-2, -1))
+
+    if do_intact_until_first_peak:
+        # Not generalizing when first dimension ('batch') is > 0,
+        # but the rest of this function doesn't seem to generalise either
+        r = torch.sqrt(einops.reduce(fftfreq_grid_squared,
+                       'b h w freq -> b h w', reduction='sum'))
+        peak_idx = torch.argmax(ctf[0, 0])
+        peak_radius = fftfreq_grid[0, 0, peak_idx, 1]
+        ctf[r <= peak_radius] = 1
+
     return ctf

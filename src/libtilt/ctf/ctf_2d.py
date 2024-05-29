@@ -133,8 +133,8 @@ def calculate_ctf(
         # but the rest of this function doesn't seem to generalise either
         r = torch.sqrt(einops.reduce(fftfreq_grid_squared,
                        'b h w freq -> b h w', reduction='sum'))
-        peak_idx = torch.argmax(ctf[0, 0])
-        peak_radius = fftfreq_grid[0, 0, peak_idx, 1]
+        peak_idx = torch.argmax(ctf.ravel())
+        peak_radius = r.ravel()[peak_idx]
         ctf[r <= peak_radius] = 1
 
     return ctf

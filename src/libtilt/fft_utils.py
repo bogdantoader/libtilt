@@ -25,9 +25,11 @@ def dft_center(
     fft_center = torch.zeros(size=(len(image_shape),), device=device)
     image_shape = torch.as_tensor(image_shape).float()
     if rfft is True:
-        image_shape = torch.tensor(rfft_shape(image_shape))
+        image_shape = torch.tensor(rfft_shape(image_shape), device=device)
     if fftshifted is True:
-        fft_center = torch.divide(image_shape, 2, rounding_mode='floor')
+        fft_center = torch.divide(
+            image_shape, 2, rounding_mode='floor'
+        ).to(device)
     if rfft is True:
         fft_center[-1] = 0
     return fft_center.long()
@@ -157,7 +159,8 @@ def _rfft_to_symmetrised_dft_2d(rfft: torch.Tensor) -> torch.Tensor:
     output[..., :-1, dc:] = rfft  # place rfft in output
     output[..., -1, dc:] = rfft[..., 0, :]  # replicate components at Nyquist
     # fill redundant half
-    output[..., :, :dc] = torch.flip(torch.conj(output[..., :, dc + 1:]), dims=(-2, -1))
+    output[..., :, :dc] = torch.flip(torch.conj(
+        output[..., :, dc + 1:]), dims=(-2, -1))
     return output
 
 
@@ -236,7 +239,8 @@ def symmetrised_dft_to_rfft_2d(dft: torch.Tensor, inplace: bool = True):
     rfft = dft if inplace is True else torch.clone(dft)
     # average hermitian symmetric halves
     rfft[..., :, r:] *= 0.5
-    rfft[..., :, r:] += 0.5 * torch.flip(torch.conj(rfft[..., :, :dc]), dims=(-2, -1))
+    rfft[..., :, r:] += 0.5 * \
+        torch.flip(torch.conj(rfft[..., :, :dc]), dims=(-2, -1))
     # average leftover redundant nyquist
     rfft[..., 0, r:] = (0.5 * rfft[..., 0, r:]) + (0.5 * rfft[..., -1, r:])
     # return without redundant nyquist
@@ -356,7 +360,8 @@ def indices_centered_on_dc_for_dft(
     dft_indices = _indices_centered_on_dc_for_shifted_dft(dft_shape, rfft=rfft)
     dft_indices = einops.rearrange(dft_indices, '... c -> c ...')
     if fftshifted is False:
-        dims_to_shift = tuple(torch.arange(start=-1 * len(dft_shape), end=0, step=1))
+        dims_to_shift = tuple(torch.arange(
+            start=-1 * len(dft_shape), end=0, step=1))
         dims_to_shift = dims_to_shift[:-1] if rfft is True else dims_to_shift
         dft_indices = torch.fft.ifftshift(dft_indices, dim=dims_to_shift)
     return einops.rearrange(dft_indices, 'c ... -> ... c')
@@ -365,7 +370,8 @@ def indices_centered_on_dc_for_dft(
 def distance_from_dc_for_dft(
     dft_shape: Sequence[int], rfft: bool, fftshifted: bool
 ) -> torch.Tensor:
-    idx = indices_centered_on_dc_for_dft(dft_shape, rfft=rfft, fftshifted=fftshifted)
+    idx = indices_centered_on_dc_for_dft(
+        dft_shape, rfft=rfft, fftshifted=fftshifted)
     return einops.reduce(idx ** 2, '... c -> ...', reduction='sum') ** 0.5
 
 
@@ -457,5 +463,6 @@ def fftfreq_to_dft_coordinates(
         coordinates[..., -1] = frequencies[..., -1] * 2 * (_rfft_shape[-1] - 1)
     else:
         coordinates[..., -1] = frequencies[..., -1] * image_shape[-1]
-    dc = dft_center(image_shape, rfft=rfft, fftshifted=True, device=frequencies.device)
+    dc = dft_center(image_shape, rfft=rfft, fftshifted=True,
+                    device=frequencies.device)
     return coordinates + dc
